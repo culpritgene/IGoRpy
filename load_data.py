@@ -25,11 +25,12 @@ import pickle
 import re
 import datetime
 import itertools
-from collections import OrderedDict
+from collections import OrderedDict, Mapping
 from functools import reduce
 
 ## Deprecated!
 from sklearn.utils import shuffle
+from scipy import stats
 from copy import deepcopy
 ####
 

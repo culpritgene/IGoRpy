@@ -137,6 +137,11 @@ def unNestDict(d):
         inner_items.update(d)
     return inner_items
 
+def map_nested_dicts(ob, func):
+    if isinstance(ob, Mapping):
+        return {str(k): map_nested_dicts(v, func) for k, v in ob.items()}
+    else:
+        return func(ob)
 
 
 

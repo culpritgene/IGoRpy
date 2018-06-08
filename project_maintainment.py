@@ -159,6 +159,9 @@ class Multi():
         self.primers = primers
         self.project_names = projects
         self.projects = {pr: {'meta': json.load(open(core+pr+'/'+pr+'_meta.json', 'r')) } for pr in projects}
+        self.batches_alias = {}
+        self.projects_alias = {}
+        self.Test_project = None
      
     def load_frames(self):
         for pr in self.project_names:
@@ -173,9 +176,42 @@ class Multi():
          for pr in self.project_names:
             self.projects[pr]['res']= res_pj.project_models_results(self.projects[pr]['frame'])
             self.projects[pr]['res'].get_events_probs()
-            self.projects[pr]['res'].store_unstacked_results()
-            self.projects[pr]['res'].store_unstacked_results_2(dist_f=dist_F)
-            
+        #    self.projects[pr]['res'].store_unstacked_results()
+         #   self.projects[pr]['res'].store_unstacked_results_2(dist_f=dist_F)
+            self.projects[pr]['res'].make_flattened()
+         self.Test_project = self.projects[self.project_names[0]]['res']
+
+
+    def make_batches_alias(self):
+        batches_alias = {}
+        for pr in self.project_names:
+            if pr != 'project_mouse_2':
+                batches_alias.update(  dict.fromkeys( NestedDictValues(self.projects[pr]['res'].batches), 
+                                                     self.projects_alias[pr]+'|'+ self.projects[pr]['res'].species[0]))
+                
+        batches_alias = {'_'.join(k.split('_')[:-1]): v+'|'+k.split('_')[-1] for k,v in batches_alias.items()}
+        ####### quick-fix for this particular data 
+        batches_alias.update( {'DLN_PBS_Tx_immunized_Out': 'CTLA4|C57BL|6104', 'DLN_PTX_Tx_immunized_Out': 'CTLA4|C57BL|7902', 
+    'BALB_C-Spleen-2_Out':'Adaptive|BALBC|18k2', 'BALB_C-Spleen-1_Out':'Adaptive|BALBC|18k1',
+    'BALB_C-Thymus-2_Out':'Adaptive|BALBC|18k4', 'BALB_C-Thymus-1_Out':'Adaptive|BALBC|18k3', 
+    'C57BL_6-Spleen-2_Out':'Adaptive|C57BL|18k2',  'C57BL_6-Thymus-2_Out':'Adaptive|C57BL|18k4',
+    'C57BL_6-Spleen-1_Out':'Adaptive|C57BL|18k1', 'C57BL_6-Thymus-1_Out':'Adaptive|C57BL|18k3'})  
+        self.batches_alias = batches_alias         
+    
+    
+    def combine_event_results(self, event_type='v_choice', project_names=None, alias=True):
+        if not project_names:
+            project_names=self.project_names
+        X = self.Test_project.bundle_together(event=None, ds = tuple(map(lambda x: x.bundle_together(event_type), [self.projects[x]['res'] for x in project_names] )))
+        if alias:
+            X.rename(index=str, columns=self.batches_alias, inplace=True)
+        return X
+    
+    def run_all(self, anon_func):
+         for pr in self.project_names:
+             anon_func(self.projects[pr]['res'])
+
+
         
         
         

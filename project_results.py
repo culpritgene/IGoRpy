@@ -28,7 +28,8 @@ class project_models_results():
         # combine together (bundle) all probabilities for one particular event. Probabilities are stored
         # as pandas DataFrames, because they can be ordered randomly for each batch.
         self.events_probs = {}
-    
+        self.sel = None
+        # self.flattened_probs = {}
     
     def get_gene_choice_v_or_j(self, i):
         ## i=0 - v_choice, i=2 - j_choice
@@ -38,7 +39,7 @@ class project_models_results():
             vj_choice.update({sp:{}})
             for batch in self.batches[sp]:
                 model = self.models[sp][batch]
-                vj_choice[sp].update({ re.match('(.*)_Out|In_\d+', batch).group(1) : pd.Series(model.marginals[0][eve], 
+                vj_choice[sp].update({ re.match('(.*_(Out|In))_\d+', batch).group(1) : pd.Series(model.marginals[0][eve], 
                                 index=model.events[i].get_realization_vector()) })
             vj_choice[sp]=pd.DataFrame(vj_choice[sp])
         self.events_probs.update({eve:vj_choice})
@@ -51,7 +52,7 @@ class project_models_results():
             d_choice.update({sp:{}})
             for batch in self.batches[sp]:
                 model = self.models[sp][batch]
-                d_choice[sp].update({ re.match('(.*)_Out|In_\d+', batch).group(1) : pd.DataFrame(model.marginals[0][eve], columns=model.events[i].get_realization_vector(),
+                d_choice[sp].update({ re.match('(.*_(Out|In))_\d+', batch).group(1) : pd.DataFrame(model.marginals[0][eve], columns=model.events[i].get_realization_vector(),
                                  index=model.events[i+1].get_realization_vector()) })
         self.events_probs.update({eve:d_choice})
         
@@ -63,7 +64,7 @@ class project_models_results():
             d_direct_choice.update({sp:{}})
             for batch in self.batches[sp]:
                 model = self.models[sp][batch]
-                d_direct_choice[sp].update({ re.match('(.*)_Out|In_\d+', batch).group(1) : pd.Series(model.marginals[0]['d_gene'].T.dot(model.marginals[0]['j_choice']),
+                d_direct_choice[sp].update({ re.match('(.*_(Out|In))_\d+', batch).group(1) : pd.Series(model.marginals[0]['d_gene'].T.dot(model.marginals[0]['j_choice']),
                                    model.events[1].get_realization_vector()) })
             d_direct_choice[sp]=pd.DataFrame(d_direct_choice[sp])
         self.events_probs.update({eve:d_direct_choice})
@@ -73,14 +74,15 @@ class project_models_results():
         r_deletions={}
         for sp in self.species:
             r_deletions.update({sp:{}})
+            r_del_b = {}
             for batch in self.batches[sp]:
                 model = self.models[sp][batch]
                 
-                r_deletions[sp].update({ re.match('(.*)_Out|In_\d+', batch).group(1) : model.marginals[0][eve]})
-#                 r_deletions[sp].update({ re.match('(.*)_Out|In_\d+', batch).group(1) : pd.DataFrame( model.marginals[0][eve],
+                r_del_b.update({ re.match('(.*_(Out|In))_\d+', batch).group(1) : model.marginals[0][eve].flatten()})
+#                 r_deletions[sp].update({ re.match('(.*_(Out|In))_\d+', batch).group(1) : pd.DataFrame( model.marginals[0][eve],
 #                                    model.events[i].get_realization_vector()).T })
-        self.events_probs.update({eve:r_deletions})
-    
+            r_deletions[sp]=pd.DataFrame(r_del_b)
+        self.events_probs.update({eve:r_deletions})    
     
     def get_ins_dinuc(self, i):
         ## i=4 - vd_ins, i=6 - dj_ins
@@ -92,7 +94,7 @@ class project_models_results():
             Event.update({sp:{}})
             for batch in self.batches[sp]:
                 model = self.models[sp][batch]
-                Event[sp].update({ re.match('(.*)_Out|In_\d+', batch).group(1) : pd.Series(model.marginals[0][eve], 
+                Event[sp].update({ re.match('(.*_(Out|In))_\d+', batch).group(1) : pd.Series(model.marginals[0][eve], 
                                                             np.arange(len(model.marginals[0][eve])))})
             Event[sp]=pd.DataFrame(Event[sp])
         self.events_probs.update({eve:Event})   
@@ -183,5 +185,71 @@ class project_models_results():
             affix2=affix1
         path_to_gen1 = self.Outputs[ret_sp(batch1)]+batch1+'_generated/'+batch1[:-10]+affix1
         path_to_gen2 = self.Outputs[ret_sp(batch2)]+batch2+'_generated/'+batch2[:-10]+affix2
-        return path_to_gen1, path_to_gen2        
+        return path_to_gen1, path_to_gen2       
+    
+    @staticmethod    
+    def flatten_df(df):
+        if type(df)==pd.Series or type(df)==pd.DataFrame:
+            return df.values.flatten()
+        else:
+            return df.flatten()
+    
+    def make_flattened(self, event_list=None):
+        try:
+            del self.events_probs['flatten']
+        except:
+            pass
+        flatten = {}
+        if not event_list:
+            event_list=list(self.events_probs.keys())
+        for sp in self.events_probs['v_choice'].keys():
+                flatten[sp]={}
+                fl_ = {}
+                for batch in self.events_probs['v_choice'][sp]:
+                    vals = [self.events_probs[event][sp][batch] for event in event_list]
+                    vals = list(map(self.flatten_df, vals))
+                    vals = np.concatenate(vals)
+                    fl_.update({batch: vals})
+                fl_ = pd.DataFrame(fl_)
+                flatten[sp] = fl_
+        self.events_probs.update({'flatten':flatten})
+
+
+    def save_selection(self,):
+        ks = list(self.sel.keys())
+        for k in ks:
+            print(f'storing Model {k} on work table')
+            json.dump( map_nested_dicts(self.sel[k], lambda x:x), open(k+'model_dump.json', 'w'))
+
+
+    def select_model(self, batch):      
+        model_dict = {}
+        for eve in self.events_probs.keys():
+            for sp in self.species:
+                try: 
+                    k= self.events_probs[eve][sp][batch].to_dict()
+                    model_dict.update({eve:k})
+                except:
+                    pass
+        print(model_dict.keys())
+        self.sel={batch:model_dict}
+        
+    def plot_single(self, event, batch):
+        spp = None
+        for sp, B in self.batches.items():
+            for b in B: 
+                if re.match(batch, b):
+                    spp = sp
+                    
+        if event=='v_3_del':
+            a = self.events_probs[event][spp][batch]
+            a = pd.DataFrame(a, columns=range(-4,17), index= self.events_probs['v_choice'][spp][batch].index)
+            a.T.boxplot(rot=75,  figsize=(10,5))
+            plt.title(batch)
+
+                
+        
+        
+        
+        
         
